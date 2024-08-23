@@ -4,12 +4,11 @@ from datetime import datetime, timedelta
 import os
 
 pd.options.display.float_format = '{:,.2f}'.format
-
+# gets user credentials from environment variables and logs in
 USERNAME = os.getenv("kickbase_user")
 PASSWORD = os.getenv("kickbase_pw")
 
 kickbase = Kickbase()
-# Log in
 user, league = kickbase.login(username=USERNAME, password=PASSWORD)
 
 # choose league

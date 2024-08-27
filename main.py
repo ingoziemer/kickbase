@@ -20,15 +20,22 @@ user_players = kickbase.league_user_players(DFS, user=user)
 player_names = []
 player_market_values = []
 day = []
+avg_points = []
+euro_per_point = []
 for row in range(len(user_players)):
     player_names.append(user_players[row].last_name)
     player_market_values.append(user_players[row].market_value)
     day.append(datetime.today().strftime("%Y-%m-%d"))
+    avg_points.append(user_players[row].average_points)
+    if avg_points[row] == 0:
+        euro_per_point.append(0)
+    else:
+        euro_per_point.append((player_market_values[row] / avg_points[row]))
 
-data = [day, player_names, player_market_values]
+data = [day, player_names, player_market_values, avg_points, euro_per_point]
 df_today = pd.DataFrame(data).T
 
-df_today.rename(columns={0: 'date', 1: 'name', 2: 'market_value'}, inplace=True)
+df_today.rename(columns={0: 'date', 1: 'name', 2: 'market_value', 3: 'avg_points', 4: '€_per_point'}, inplace=True)
 
 # if already existing get yesterday's dataframe, append today's dataframe to it and write it to excel
 # if today is the first dataframe (e.g. first use of this script) simply write today's dataframe to excel

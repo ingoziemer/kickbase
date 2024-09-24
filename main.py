@@ -2,11 +2,13 @@ from kickbase_api.kickbase import Kickbase
 import pandas as pd
 from datetime import datetime, timedelta
 import os
+import glob
+from openpyxl.workbook import Workbook
 
 pd.options.display.float_format = '{:,.2f}'.format
 # gets user credentials from environment variables and logs in
-USERNAME = os.getenv("kickbase_user")
-PASSWORD = os.getenv("kickbase_pw")
+USERNAME = os.environ["kickbase_user"]
+PASSWORD = os.environ["kickbase_pw"]
 
 kickbase = Kickbase()
 user, league = kickbase.login(username=USERNAME, password=PASSWORD)
@@ -37,17 +39,18 @@ df_today = pd.DataFrame(data).T
 
 df_today.rename(columns={0: 'date', 1: 'name', 2: 'market_value', 3: 'avg_points', 4: '€_per_point'}, inplace=True)
 
-# if already existing get yesterday's dataframe, append today's dataframe to it and write it to excel
+# if already existing get latest dataframe, append today's dataframe to it and write it to excel
 # if today is the first dataframe (e.g. first use of this script) simply write today's dataframe to excel
-yesterday = datetime.today() - timedelta(days=1)
-yesterday.strftime("%Y-%m-%d")
+
+list_of_files = glob.glob('*.xlsx') # * means all if need specific format then *.csv
+latest_file = max(list_of_files, key=os.path.getctime)
 try:
-    df_yesterday = pd.read_excel(f'{yesterday.strftime("%Y-%m-%d")}_team_values.xlsx', index_col=0)
+    df_latest = pd.read_excel(latest_file, index_col=0)
 except FileNotFoundError:
     with pd.ExcelWriter(f'{datetime.today().strftime("%Y-%m-%d")}_team_values.xlsx') as writer:
         df_today.to_excel(writer)
 else:
-    df_concat = pd.concat([df_yesterday, df_today], axis=0)
+    df_concat = pd.concat([df_latest, df_today], axis=0)
 
     with pd.ExcelWriter(f'{datetime.today().strftime("%Y-%m-%d")}_team_values.xlsx') as writer:
         df_concat.to_excel(writer)

@@ -1,56 +1,104 @@
 from kickbase_api.kickbase import Kickbase
-import pandas as pd
-from datetime import datetime, timedelta
 import os
-import glob
-from openpyxl.workbook import Workbook
+import requests
+import pandas as pd
+import openpyxl
 
-pd.options.display.float_format = '{:,.2f}'.format
+kickbase = Kickbase()
+
 # gets user credentials from environment variables and logs in
 USERNAME = os.environ["kickbase_user"]
 PASSWORD = os.environ["kickbase_pw"]
+url = "https://api.kickbase.com/v4/user/login"
+headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+}
+payload = {
+    "em": USERNAME,
+    "pass": PASSWORD,
+    "ext": True,  # TODO: What is this?
+    "loy": False,  # TODO: What is this?
+    "rep": {}  # TODO: What is this?
+}
+# token beschaffen für weiteren Zugriff
+response = requests.post(url, json=payload, headers=headers).json()
+token = response["tkn"]
 
-kickbase = Kickbase()
-user, league = kickbase.login(username=USERNAME, password=PASSWORD)
+# ID der Liga beschaffen
+leagues_endpoint = "https://api.kickbase.com/v4/leagues/selection"
+leagues_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
 
-# choose league
-DFS = league[0]
+leagues = requests.request("GET", leagues_endpoint, headers=leagues_headers, data=payload)
+leagueID = leagues.json()['it'][2]['i']
 
-# get the players on your team and write their names and market value in a dataframe
-user_players = kickbase.league_user_players(DFS, user=user)
+# Spielerdaten ziehen
+players_endpoint = f"https://api.kickbase.com/v4/leagues/{leagueID}/squad"
+players_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+}
 
-player_names = []
-player_market_values = []
-day = []
-avg_points = []
-euro_per_point = []
-for row in range(len(user_players)):
-    player_names.append(user_players[row].last_name)
-    player_market_values.append(user_players[row].market_value)
-    day.append(datetime.today().strftime("%Y-%m-%d"))
-    avg_points.append(user_players[row].average_points)
-    if avg_points[row] == 0:
-        euro_per_point.append(0)
-    else:
-        euro_per_point.append((player_market_values[row] / avg_points[row]))
+players_response = requests.request("GET", players_endpoint, headers=players_headers, data=payload)
+players_data = players_response.json()
+print(players_data)
+players_list = [(player['n'], player['mv'], player.get('ap', 0), player['pos']) for player in players_data['it']]
+print(players_list)
 
-data = [day, player_names, player_market_values, avg_points, euro_per_point]
-df_today = pd.DataFrame(data).T
+playersID = [player['i'] for player in players_data['it']]
+print(playersID)
+# einkaufspreis = []
+# for ID in playersID:
+#     transferHistory_url = f"https://api.kickbase.com/v4/leagues/{leagueID}/players/{ID}/transferHistory"
+#     response_ek = requests.request("GET", transferHistory_url, headers=leagues_headers, data=payload)
+#     ek = response_ek.json()['it'][-1]['trp']
+#     einkaufspreis.append(ek)
 
-df_today.rename(columns={0: 'date', 1: 'name', 2: 'market_value', 3: 'avg_points', 4: '€_per_point'}, inplace=True)
+# # Budgetdaten ziehen
 
-# if already existing get latest dataframe, append today's dataframe to it and write it to excel
-# if today is the first dataframe (e.g. first use of this script) simply write today's dataframe to excel
+budget_endpoint = f"https://api.kickbase.com/v4/leagues/{leagueID}/me/budget"
+budget_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}"
+}
 
-list_of_files = glob.glob('*.xlsx') # * means all if need specific format then *.csv
-latest_file = max(list_of_files, key=os.path.getctime)
-try:
-    df_latest = pd.read_excel(latest_file, index_col=0)
-except FileNotFoundError:
-    with pd.ExcelWriter(f'{datetime.today().strftime("%Y-%m-%d")}_team_values.xlsx') as writer:
-        df_today.to_excel(writer)
-else:
-    df_concat = pd.concat([df_latest, df_today], axis=0)
+budget_response = requests.request("GET", budget_endpoint, headers=budget_headers, data=payload)
+budget_data = budget_response.json()
+current_cash = budget_data['b']
+print(budget_data)
 
-    with pd.ExcelWriter(f'{datetime.today().strftime("%Y-%m-%d")}_team_values.xlsx') as writer:
-        df_concat.to_excel(writer)
+# # Spielerdaten nach Excel exportieren
+df = pd.DataFrame(players_list, columns=['Spielername', 'Marktwert', 'Punkte Durchschnitt', 'Position'])
+# df["Einkaufspreis"] = einkaufspreis
+# df["Differenz"] = df["Marktwert"] - df["Einkaufspreis"]
+#
+
+df = df.sort_values(by=["Position", "Spielername"])
+positions_map = {
+    1: "Torwart",
+    2: "Abwehr",
+    3: "Mittelfeld",
+    4: "Sturm"
+}
+df["Position"] = df["Position"].map(positions_map)
+with pd.ExcelWriter("kickbase_spieler.xlsx", engine="openpyxl") as writer:
+    df.to_excel(writer, index=False, sheet_name="Spieler")
+
+    workbook = writer.book
+    worksheet = writer.sheets["Spieler"]
+    # Zahlenformat setzen
+    for cell in worksheet["B"][1:]:  # [1:] überspringt Header
+        cell.number_format = "#,##0"
+
+    # Zwei Leerzeilen und anschließend Kontostand
+    start_row = len(df) + 4
+    worksheet.cell(row=start_row, column=1).value = "Kontostand:"
+    worksheet.cell(row=start_row, column=2).value = current_cash
+    worksheet.cell(row=start_row, column=2).number_format = "#,##0"
+
